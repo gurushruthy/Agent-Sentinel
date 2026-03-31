@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package sentinel;
+
+// The core service for Task Orchestration.
+// Runs on the Raft leader node. Workers connect to the leader's gRPC port.
+service Orchestrator {
+  // Worker asks for a new task and a Lease.
+  // If no PENDING task is available, returns TaskLease with task_id = "".
+  // Worker should poll again after a backoff interval.
+  rpc AcquireTask (WorkerInfo) returns (TaskLease);
+
+  // Worker sends a heartbeat to keep the Lease alive.
+  // Must be called every ~10s. Leader resets lease_expires_at on success.
+  // Returns success=false if the lease is stale or the task no longer exists.
+  rpc SendHeartbeat (LeaseToken) returns (Acknowledgment);
+
+  // Worker commits a checkpoint (serialized AgentState JSON) to the leader.
+  // Leader rejects if version_token does not match (fencing).
+  // On success, the checkpoint is replicated to all Raft nodes.
+  rpc CommitState (StateUpdate) returns (Acknowledgment);
+}
+
+// ─── Request / Response Messages ─────────────────────────────────────────────
+
+message WorkerInfo {
+  string worker_id = 1;
+}
+
+message TaskLease {
+  // Empty string means no PENDING task is available — worker should poll again.
+  string task_id = 1;
+
+  // Fencing token. Incremented every time a new worker acquires the task.
+  // Worker must echo this back on every SendHeartbeat and CommitState call.
+  // Leader rejects any request where version_token does not match stored value.
+  uint64 version_token = 2;
+
+  // The current serialized AgentState JSON (checkpoint_json from TaskRecord).
+  // Empty string on first acquisition. Non-empty on recovery — worker resumes
+  // from the last committed checkpoint.
+  string json_state = 3;
+
+  // Unix epoch timestamp (seconds) when the lease expires.
+  // Worker must call SendHeartbeat before this time to keep the lease alive.
+  int64 expires_at = 4;
+}
+
+message LeaseToken {
+  string task_id = 1;
+  string worker_id = 2;
+
+  // Must match the version_token from the TaskLease exactly (strict fencing).
+  uint64 version_token = 3;
+}
+
+message StateUpdate {
+  string task_id = 1;
+  string worker_id = 2;
+
+  // Must match the version_token from the TaskLease exactly (strict fencing).
+  uint64 version_token = 3;
+
+  // Serialized AgentState JSON. Stored as checkpoint_json in the TaskRecord
+  // and replicated to all Raft nodes.
+  string json_state = 4;
+}
+
+message Acknowledgment {
+  bool success = 1;
+
+  // Human-readable message. On failure, contains the reason (e.g. stale token,
+  // task not found, not leader).
+  string message = 2;
+}

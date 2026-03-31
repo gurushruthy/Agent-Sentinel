@@ -1,0 +1,14 @@
+# Raft consensus
+pysyncobj>=0.3.12
+
+# gRPC + Protobuf
+grpcio>=1.62.0
+grpcio-tools>=1.62.0
+protobuf>=4.25.0
+
+# AI / LangGraph (Phase 4)
+langgraph>=0.1.0
+langchain-core>=0.1.0
+
+# Testing
+pytest>=8.0.0
