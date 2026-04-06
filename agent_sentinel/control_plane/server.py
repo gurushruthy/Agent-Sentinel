@@ -13,8 +13,9 @@ import signal
 import sys
 import time
 
-from agent_sentinel.config import NODES
+from agent_sentinel.config import NODES, GRPC_PORT_BASE
 from agent_sentinel.control_plane.node import ControlPlaneNode
+from agent_sentinel.grpc_layer.server import GrpcServerManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,10 +54,12 @@ def main() -> None:
     logger.info("=" * 55)
 
     node = ControlPlaneNode(node_id=node_id)
+    grpc_manager = GrpcServerManager(node, node_id=node_id)
 
     # ── Graceful shutdown on SIGINT / SIGTERM ─────────────────────────────
     def _shutdown(sig, frame):
         logger.info("Node %d shutting down (signal %s)...", node_id, sig)
+        grpc_manager.stop()
         node.destroy()
         sys.exit(0)
 
@@ -68,16 +71,21 @@ def main() -> None:
     while True:
         time.sleep(STATUS_INTERVAL_SECONDS)
 
+        # Start or stop gRPC based on current leadership
+        grpc_manager.sync()
+
         leader = node.get_leader()
         is_me = node.is_leader()
         role = "LEADER" if is_me else "follower"
         task_counts = _task_summary(node)
+        grpc_status = f"gRPC=port {GRPC_PORT_BASE + node_id}" if grpc_manager.is_running else "gRPC=off"
 
         logger.info(
-            "[Node %d | %s] leader=%s | tasks: %s",
+            "[Node %d | %s] leader=%s | %s | tasks: %s",
             node_id,
             role,
             leader or "unknown",
+            grpc_status,
             task_counts,
         )
 
