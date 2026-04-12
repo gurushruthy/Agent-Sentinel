@@ -1,7 +1,6 @@
 import time
 from typing import Optional
 
-from pysyncobj import replicated
 from pysyncobj.batteries import ReplDict
 
 from agent_sentinel.config import LEASE_DURATION_SECONDS, MAX_RETRIES
@@ -69,12 +68,18 @@ class TaskRegistry(ReplDict):
                 f"expected {record['version_token']}."
             )
 
-    # ─── @replicated primitives (applied on ALL nodes via Raft log) ──────────
+    # ─── Replication primitive (applied on ALL nodes via Raft log) ────────────
 
-    @replicated
     def _apply_record(self, task_id: str, record: dict) -> None:
-        """Write a fully-computed TaskRecord into the dict on every node."""
-        self[task_id] = record
+        """
+        Write a fully-computed TaskRecord via ReplDict's built-in replicated set.
+
+        Note: ReplDict.__setitem__/set are already @replicated. Wrapping another
+        @replicated method around them prevents writes from being applied.
+        """
+        # Block until the command is committed so RPC handlers don't return
+        # success before the replicated write is actually durable/visible.
+        self.set(task_id, record, sync=True, timeout=10)
 
     # ─── Public write API (leader-only entry points) ─────────────────────────
 

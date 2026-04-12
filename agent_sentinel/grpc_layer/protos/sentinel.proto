@@ -5,6 +5,11 @@ package sentinel;
 // The core service for Task Orchestration.
 // Runs on the Raft leader node. Workers connect to the leader's gRPC port.
 service Orchestrator {
+  // Client submits a new task to the cluster. Leader adds it to the registry
+  // and replicates it to all Raft nodes. Returns success=false if the task_id
+  // already exists or this node is not the leader.
+  rpc AddTask (TaskRequest) returns (Acknowledgment);
+
   // Worker asks for a new task and a Lease.
   // If no PENDING task is available, returns TaskLease with task_id = "".
   // Worker should poll again after a backoff interval.
@@ -22,6 +27,15 @@ service Orchestrator {
 }
 
 // ─── Request / Response Messages ─────────────────────────────────────────────
+
+message TaskRequest {
+  // Unique identifier for the task (e.g. UUID). Must not already exist.
+  string task_id = 1;
+
+  // Arbitrary JSON string for task metadata (e.g. description, priority).
+  // Pass "{}" or leave empty if no metadata is needed.
+  string metadata_json = 2;
+}
 
 message WorkerInfo {
   string worker_id = 1;

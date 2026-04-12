@@ -54,7 +54,8 @@ class ControlPlaneNode(SyncObj):
         self_address = NODES[node_id]
         partners = [addr for i, addr in enumerate(NODES) if i != node_id]
 
-        data_dir = os.path.join(os.path.dirname(__file__), "../../../data")
+        # Keep persistent Raft state inside this repository's data/ directory.
+        data_dir = os.path.join(os.path.dirname(__file__), "../../data")
         data_dir = os.path.normpath(data_dir)
         os.makedirs(data_dir, exist_ok=True)
 

@@ -82,8 +82,8 @@ class Worker:
 
     def _find_leader(self) -> None:
         """
-        Try each gRPC address in round-robin until one responds to AcquireTask
-        without returning NOT_LEADER. Caches the working channel + stub.
+        Try each gRPC address in round-robin until one responds as leader.
+        Uses a heartbeat probe to avoid mutating task state during discovery.
 
         Called once at startup and again whenever any RPC returns NOT_LEADER
         or raises a network error.
@@ -94,13 +94,18 @@ class Worker:
                 try:
                     channel = grpc.insecure_channel(address)
                     stub = sentinel_pb2_grpc.OrchestratorStub(channel)
-                    # A lightweight probe: ask for a task. If the node isn't
-                    # the leader it will abort with FAILED_PRECONDITION.
-                    stub.AcquireTask(
-                        sentinel_pb2.WorkerInfo(worker_id=self._worker_id),
+                    # Probe with a fake heartbeat:
+                    # - leader: returns ack(success=False, "task not found")
+                    # - follower: aborts with FAILED_PRECONDITION (NOT_LEADER)
+                    stub.SendHeartbeat(
+                        sentinel_pb2.LeaseToken(
+                            task_id="__leader_probe__",
+                            worker_id=self._worker_id,
+                            version_token=0,
+                        ),
                         timeout=2,
                     )
-                    # No exception → this node is the leader (or no tasks yet)
+                    # No exception => this node is the leader.
                     self._channel = channel
                     self._stub = stub
                     logger.info("Worker %s connected to leader at %s", self._worker_id, address)

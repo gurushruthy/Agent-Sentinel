@@ -8,8 +8,8 @@ All write RPCs enforce two invariants:
      Stale workers are rejected immediately.
 """
 
+import json
 import logging
-import time
 
 import grpc
 
@@ -18,7 +18,7 @@ from agent_sentinel.grpc_layer.sentinel_pb2 import (
     TaskLease,
 )
 from agent_sentinel.grpc_layer.sentinel_pb2_grpc import OrchestratorServicer
-from agent_sentinel.control_plane.registry import NotLeaderError, StaleTokenError
+from agent_sentinel.control_plane.registry import StaleTokenError
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +53,34 @@ class SentinelServicer(OrchestratorServicer):
         return leader
 
     # ─── RPC implementations ─────────────────────────────────────────────────
+
+    def AddTask(self, request, context: grpc.ServicerContext) -> Acknowledgment:
+        """
+        Client submits a new task to the cluster.
+
+        Flow:
+          1. Check this node is the leader — abort with NOT_LEADER if not.
+          2. Parse metadata_json (defaults to empty dict if blank).
+          3. Call registry.add_task() — creates PENDING record, replicates via Raft.
+          4. Return Acknowledgment(success=True) on success.
+             Return Acknowledgment(success=False) if task_id already exists.
+        """
+        if not self._node.is_leader():
+            self._not_leader(context)
+            return Acknowledgment(success=False)
+
+        task_id = request.task_id
+        try:
+            metadata = json.loads(request.metadata_json) if request.metadata_json else {}
+        except json.JSONDecodeError as e:
+            return Acknowledgment(success=False, message=f"invalid metadata_json: {e}")
+
+        try:
+            self._node.registry.add_task(task_id, metadata)
+            logger.info("Task %s added by client", task_id)
+            return Acknowledgment(success=True, message=f"task {task_id} added")
+        except ValueError as e:
+            return Acknowledgment(success=False, message=str(e))
 
     def AcquireTask(self, request, context: grpc.ServicerContext) -> TaskLease:
         """
@@ -169,6 +197,29 @@ class SentinelServicer(OrchestratorServicer):
                 version_token=version_token,
                 checkpoint_json=json_state,
             )
+
+            # If the final checkpoint marks all steps completed, finalize task.
+            try:
+                state = json.loads(json_state) if json_state else {}
+                tool_results = state.get("tool_results", {})
+                all_done = all(
+                    tool_results.get(step, {}).get("status") == "COMPLETED"
+                    for step in ("SEARCH", "SUMMARIZE", "SAVE")
+                )
+            except Exception:
+                all_done = False
+
+            if all_done:
+                self._node.registry.complete_task(
+                    task_id=task_id,
+                    worker_id=worker_id,
+                    version_token=version_token,
+                )
+                logger.info(
+                    "Task %s marked COMPLETED by worker=%s token=%d",
+                    task_id, worker_id, version_token,
+                )
+
             logger.info(
                 "Checkpoint committed task=%s worker=%s token=%d",
                 task_id, worker_id, version_token,
@@ -181,4 +232,8 @@ class SentinelServicer(OrchestratorServicer):
 
         except KeyError as e:
             logger.warning("CommitState for unknown task: %s", e)
+            return Acknowledgment(success=False, message=str(e))
+
+        except ValueError as e:
+            logger.warning("CommitState validation failed: %s", e)
             return Acknowledgment(success=False, message=str(e))
