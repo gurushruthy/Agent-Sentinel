@@ -24,6 +24,13 @@ service Orchestrator {
   // Leader rejects if version_token does not match (fencing).
   // On success, the checkpoint is replicated to all Raft nodes.
   rpc CommitState (StateUpdate) returns (Acknowledgment);
+
+  // Client fetches a task by ID.
+  // Returns found=false if the task does not exist.
+  rpc GetTask (TaskId) returns (TaskRecordResponse);
+
+  // Client lists tasks, optionally filtered by status.
+  rpc ListTasks (TaskListRequest) returns (TaskListResponse);
 }
 
 // ─── Request / Response Messages ─────────────────────────────────────────────
@@ -86,4 +93,26 @@ message Acknowledgment {
   // Human-readable message. On failure, contains the reason (e.g. stale token,
   // task not found, not leader).
   string message = 2;
+}
+
+message TaskId {
+  string task_id = 1;
+}
+
+message TaskRecordResponse {
+  bool found = 1;
+  string task_json = 2;
+  string message = 3;
+}
+
+message TaskListRequest {
+  // Optional status filter: PENDING, RUNNING, COMPLETED, FAILED
+  string status = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message TaskListResponse {
+  repeated string tasks_json = 1;
+  int32 total = 2;
 }

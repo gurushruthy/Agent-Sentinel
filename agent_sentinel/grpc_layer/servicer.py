@@ -13,6 +13,7 @@ import logging
 
 import grpc
 
+from agent_sentinel.workers.checkpoint import AgentState, serialize
 from agent_sentinel.grpc_layer.sentinel_pb2 import (
     Acknowledgment,
     TaskLease,
@@ -76,7 +77,13 @@ class SentinelServicer(OrchestratorServicer):
             return Acknowledgment(success=False, message=f"invalid metadata_json: {e}")
 
         try:
-            self._node.registry.add_task(task_id, metadata)
+            initial_state = AgentState(task_id=task_id, metadata=metadata)
+            initial_checkpoint_json = serialize(initial_state)
+            self._node.registry.add_task(
+                task_id,
+                metadata,
+                initial_checkpoint_json=initial_checkpoint_json,
+            )
             logger.info("Task %s added by client", task_id)
             return Acknowledgment(success=True, message=f"task {task_id} added")
         except ValueError as e:
@@ -237,3 +244,37 @@ class SentinelServicer(OrchestratorServicer):
         except ValueError as e:
             logger.warning("CommitState validation failed: %s", e)
             return Acknowledgment(success=False, message=str(e))
+
+    def GetTask(self, request, context: grpc.ServicerContext):
+        if not self._node.is_leader():
+            self._not_leader(context)
+            from agent_sentinel.grpc_layer.sentinel_pb2 import TaskRecordResponse
+
+            return TaskRecordResponse(found=False)
+
+        from agent_sentinel.grpc_layer.sentinel_pb2 import TaskRecordResponse
+
+        task_id = request.task_id
+        task = self._node.registry.get_task(task_id)
+        if task is None:
+            return TaskRecordResponse(found=False, message=f"task {task_id} not found")
+        return TaskRecordResponse(found=True, task_json=json.dumps(task))
+
+    def ListTasks(self, request, context: grpc.ServicerContext):
+        if not self._node.is_leader():
+            self._not_leader(context)
+            from agent_sentinel.grpc_layer.sentinel_pb2 import TaskListResponse
+
+            return TaskListResponse(tasks_json=[], total=0)
+
+        from agent_sentinel.grpc_layer.sentinel_pb2 import TaskListResponse
+
+        status = request.status.strip() if request.status else None
+        limit = request.limit if request.limit and request.limit > 0 else 100
+        offset = request.offset if request.offset and request.offset > 0 else 0
+
+        tasks = self._node.registry.list_tasks(status=status or None)
+        total = len(tasks)
+        page = tasks[offset: offset + limit]
+        tasks_json = [json.dumps(t) for t in page]
+        return TaskListResponse(tasks_json=tasks_json, total=total)

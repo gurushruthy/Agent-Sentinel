@@ -28,6 +28,7 @@ from agent_sentinel.config import (
     GRPC_PORT_BASE,
     HEARTBEAT_INTERVAL_SECONDS,
     NODES,
+    WORKER_EXECUTION_MODE,
 )
 from agent_sentinel.grpc_layer import sentinel_pb2, sentinel_pb2_grpc
 from agent_sentinel.workers.checkpoint import (
@@ -58,16 +59,33 @@ class Worker:
     Stateless task worker. All persistent state lives in the Raft cluster.
     """
 
-    def __init__(self, worker_id: str):
+    def __init__(self, worker_id: str, execution_mode: str = WORKER_EXECUTION_MODE):
         self._worker_id = worker_id
+        self._execution_mode = execution_mode
         self._channel: grpc.Channel | None = None
         self._stub: sentinel_pb2_grpc.OrchestratorStub | None = None
+        self._graph_runner = None
+
+        if self._execution_mode not in {"stub", "langgraph"}:
+            raise ValueError(
+                f"Invalid WORKER_EXECUTION_MODE={self._execution_mode!r}. "
+                "Expected 'stub' or 'langgraph'."
+            )
+
+        if self._execution_mode == "langgraph":
+            from agent_sentinel.workers.langgraph_runner import LangGraphStepRunner
+
+            self._graph_runner = LangGraphStepRunner()
 
     # ─── Public entry point ──────────────────────────────────────────────────
 
     def run(self) -> None:
         """Main loop: find leader → poll → execute → repeat."""
-        logger.info("Worker %s starting.", self._worker_id)
+        logger.info(
+            "Worker %s starting (execution_mode=%s).",
+            self._worker_id,
+            self._execution_mode,
+        )
         self._find_leader()
 
         while True:
@@ -233,10 +251,12 @@ class Worker:
 
     def _run_step(self, state: AgentState, step_name: str) -> dict | None:
         """
-        Dispatch to the appropriate step implementation.
+        Dispatch to the configured execution engine.
         Returns a dict of result_fields to store in tool_results, or None on failure.
-        Phase 4 will replace these stubs with real LangGraph nodes.
         """
+        if self._execution_mode == "langgraph":
+            return self._graph_runner.run_step(state, step_name)
+
         if step_name == "SEARCH":
             return self._step_search(state)
         elif step_name == "SUMMARIZE":

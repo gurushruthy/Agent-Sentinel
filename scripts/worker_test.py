@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 import uuid
+import argparse
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -37,6 +38,7 @@ PYTHON = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../.venv/bin/python")
 )
 GRPC_ADDRESSES = [f"localhost:{GRPC_PORT_BASE + i}" for i in range(len(NODES))]
+DEFAULT_EXECUTION_MODE = os.getenv("WORKER_EXECUTION_MODE", "stub").strip().lower()
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -82,14 +84,17 @@ def start_raft_node(node_id: int) -> subprocess.Popen:
     return proc
 
 
-def start_worker(worker_id: str) -> subprocess.Popen:
+def start_worker(worker_id: str, execution_mode: str) -> subprocess.Popen:
+    env = os.environ.copy()
+    env["WORKER_EXECUTION_MODE"] = execution_mode
     proc = subprocess.Popen(
         [PYTHON, "-m", "agent_sentinel.workers.worker", "--worker-id", worker_id],
         cwd=os.path.join(os.path.dirname(__file__), ".."),
         stdout=None,   # inherit — prints directly so we can see worker logs
         stderr=None,
+        env=env,
     )
-    log(f"Started {worker_id} (pid={proc.pid})")
+    log(f"Started {worker_id} (pid={proc.pid}, mode={execution_mode})")
     return proc
 
 
@@ -169,7 +174,28 @@ def poll_task_status(
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Worker crash & resume integration test.")
+    parser.add_argument(
+        "--execution-mode",
+        choices=["stub", "langgraph"],
+        default=DEFAULT_EXECUTION_MODE,
+        help="Worker execution engine mode (default from WORKER_EXECUTION_MODE env var).",
+    )
+    parser.add_argument(
+        "--crash-after-step",
+        choices=["SEARCH", "SUMMARIZE"],
+        default="SEARCH",
+        help="Which step checkpoint to wait for before killing worker-1.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+    execution_mode = args.execution_mode
+    crash_after_step = args.crash_after_step
+
     print("\n" + "═" * 60)
     print("  Agent-Sentinel — Phase 3 Worker Crash & Resume Test")
     print("═" * 60)
@@ -205,19 +231,26 @@ def main() -> None:
 
         # ── Step 4: Start worker-1, wait for SEARCH checkpoint ────────────
         log_step("Step 4: Starting worker-1")
-        procs["w1"] = start_worker("w1")
+        procs["w1"] = start_worker("w1", execution_mode)
 
-        log("Waiting for worker-1 to commit SEARCH checkpoint...")
+        log(f"Waiting for worker-1 to commit {crash_after_step} checkpoint...")
 
-        def search_completed(task):
+        def step_completed(task):
             cp_json = task.get("checkpoint_json", "")
             if not cp_json:
                 return False
             cp = json.loads(cp_json)
-            return cp.get("tool_results", {}).get("SEARCH", {}).get("status") == "COMPLETED"
+            return cp.get("tool_results", {}).get(crash_after_step, {}).get("status") == "COMPLETED"
 
-        poll_task_status(reader, task_id, "RUNNING", timeout=25, check_fn=search_completed)
-        log("SEARCH checkpoint committed by worker-1.")
+        checkpoint_wait_timeout = 25 if crash_after_step == "SEARCH" else 60
+        poll_task_status(
+            reader,
+            task_id,
+            "RUNNING",
+            timeout=checkpoint_wait_timeout,
+            check_fn=step_completed,
+        )
+        log(f"{crash_after_step} checkpoint committed by worker-1.")
 
         # ── Step 5: Kill worker-1 ─────────────────────────────────────────
         log_step("Step 5: Killing worker-1 (simulating crash)")
@@ -233,7 +266,7 @@ def main() -> None:
 
         # ── Step 7: Start worker-2 ────────────────────────────────────────
         log_step("Step 7: Starting worker-2")
-        procs["w2"] = start_worker("w2")
+        procs["w2"] = start_worker("w2", execution_mode)
 
         # ── Step 8: Wait for COMPLETED ────────────────────────────────────
         log_step("Step 8: Waiting for worker-2 to complete the task")
@@ -258,8 +291,12 @@ def main() -> None:
         print("\n" + "═" * 60)
         print("  RESULT: ALL CHECKS PASSED")
         print(f"  task_id:  {task_id}")
-        print(f"  Crashed:  worker-1 (after SEARCH checkpoint)")
-        print(f"  Resumed:  worker-2 (skipped SEARCH, ran SUMMARIZE + SAVE)")
+        print(f"  Mode:     {execution_mode}")
+        print(f"  Crashed:  worker-1 (after {crash_after_step} checkpoint)")
+        if crash_after_step == "SEARCH":
+            print("  Resumed:  worker-2 (skipped SEARCH, ran SUMMARIZE + SAVE)")
+        else:
+            print("  Resumed:  worker-2 (skipped SEARCH + SUMMARIZE, ran SAVE)")
         print(f"  Final:    COMPLETED by w2")
         print("═" * 60 + "\n")
 
