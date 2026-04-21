@@ -65,10 +65,6 @@ flowchart TB
     F2 --- DF2
 ```
 
-### Task Lifecycle
-
-See the sequence diagram in [docs/task-lifecycle.md](/Users/shruthymoorthy/Documents/GitHub/Agent-Sentinel/docs/task-lifecycle.md).
-
 ### Runtime Model
 
 - Each node runs `ControlPlaneNode` + `TaskRegistry` (replicated `ReplDict`).
