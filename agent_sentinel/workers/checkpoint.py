@@ -7,6 +7,7 @@ CommitState so that any worker can resume from the last saved state.
 Schema overview
 ───────────────
   task_id          str        which task this state belongs to
+  metadata         dict       task metadata (e.g. user query) carried from AddTask
   current_step     str        the step currently executing ("SEARCH" | "SUMMARIZE" | "SAVE")
   step_index       int        0-based; recovering worker starts from here
   history          list[dict] LangGraph message history  [{role, content}, ...]
@@ -40,6 +41,7 @@ STEPS = ["SEARCH", "SUMMARIZE", "SAVE"]
 @dataclass
 class AgentState:
     task_id: str
+    metadata: dict[str, Any] = field(default_factory=dict)
     current_step: str = STEPS[0]
     step_index: int = 0
     history: list[dict[str, str]] = field(default_factory=list)
@@ -59,6 +61,7 @@ def serialize(state: AgentState) -> str:
     """Convert AgentState to the JSON string stored in checkpoint_json."""
     return json.dumps({
         "task_id": state.task_id,
+        "metadata": state.metadata,
         "current_step": state.current_step,
         "step_index": state.step_index,
         "history": state.history,
@@ -79,13 +82,14 @@ def deserialize(json_str: str, task_id: str) -> AgentState:
 
     data = json.loads(json_str)
     return AgentState(
-        task_id=data["task_id"],
-        current_step=data["current_step"],
-        step_index=data["step_index"],
-        history=data["history"],
-        tool_results=data["tool_results"],
-        idempotency_key=data["idempotency_key"],
-        last_checkpoint_at=data["last_checkpoint_at"],
+        task_id=data.get("task_id", task_id),
+        metadata=data.get("metadata", {}),
+        current_step=data.get("current_step", STEPS[0]),
+        step_index=data.get("step_index", 0),
+        history=data.get("history", []),
+        tool_results=data.get("tool_results", {}),
+        idempotency_key=data.get("idempotency_key", ""),
+        last_checkpoint_at=data.get("last_checkpoint_at", 0.0),
     )
 
 

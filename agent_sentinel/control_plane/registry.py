@@ -83,7 +83,12 @@ class TaskRegistry(ReplDict):
 
     # ─── Public write API (leader-only entry points) ─────────────────────────
 
-    def add_task(self, task_id: str, metadata: Optional[dict] = None) -> None:
+    def add_task(
+        self,
+        task_id: str,
+        metadata: Optional[dict] = None,
+        initial_checkpoint_json: str = "",
+    ) -> None:
         """Add a new PENDING task. Must be called on the leader."""
         self._require_leader()
         if self.get(task_id) is not None:
@@ -95,7 +100,7 @@ class TaskRegistry(ReplDict):
             "worker_id": None,
             "version_token": 0,
             "lease_expires_at": 0.0,
-            "checkpoint_json": "",
+            "checkpoint_json": initial_checkpoint_json,
             "error_count": 0,
             "metadata": metadata or {},
             "created_at": now,

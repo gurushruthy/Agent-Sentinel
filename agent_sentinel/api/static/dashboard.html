@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Sentinel Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/dashboard.css" />
+  </head>
+  <body>
+    <div class="bg-grid"></div>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">Agent Sentinel</p>
+        <h1>Control Plane Console</h1>
+        <p class="subtitle">
+          Monitor leader election, submit workflow queries, and inspect task execution state in real time.
+        </p>
+      </header>
+
+      <section class="panel panel-cluster">
+        <div class="panel-head">
+          <h2>Cluster Status</h2>
+          <div class="pill" id="leader-pill">Leader: checking...</div>
+        </div>
+        <div class="node-grid" id="node-grid"></div>
+      </section>
+
+      <section class="grid-2">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Submit Task</h2>
+            <span class="mono">POST /tasks</span>
+          </div>
+          <form id="task-form">
+            <label for="query-input">Search Query</label>
+            <textarea
+              id="query-input"
+              rows="3"
+              required
+              placeholder="e.g. best books to understand distributed systems"
+            ></textarea>
+            <label for="meta-input">Metadata JSON (optional)</label>
+            <textarea
+              id="meta-input"
+              rows="4"
+              placeholder='{"source":"ui","priority":"normal"}'
+            ></textarea>
+            <div class="actions">
+              <button type="submit" id="submit-btn">Submit Task</button>
+              <span id="submit-status" class="status-msg"></span>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Latest Tasks</h2>
+            <span class="mono">GET /tasks</span>
+          </div>
+          <div class="task-toolbar">
+            <label>
+              Status
+              <select id="status-filter">
+                <option value="">All</option>
+                <option value="PENDING">PENDING</option>
+                <option value="RUNNING">RUNNING</option>
+                <option value="COMPLETED">COMPLETED</option>
+                <option value="FAILED">FAILED</option>
+              </select>
+            </label>
+            <button id="refresh-btn" type="button">Refresh</button>
+          </div>
+          <div class="task-list" id="task-list"></div>
+        </section>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Task Inspector</h2>
+          <span class="mono">GET /tasks/{task_id}</span>
+        </div>
+        <div id="task-detail-empty" class="empty-state">
+          Select a task from the list to inspect checkpoint metadata and tool results.
+        </div>
+        <div id="task-detail" class="detail hidden">
+          <div class="detail-meta" id="task-meta"></div>
+          <div class="detail-columns">
+            <div>
+              <h3>Tool Results</h3>
+              <pre id="tool-results"></pre>
+            </div>
+            <div>
+              <h3>Checkpoint JSON</h3>
+              <pre id="checkpoint-json"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/dashboard.js" defer></script>
+  </body>
+</html>
