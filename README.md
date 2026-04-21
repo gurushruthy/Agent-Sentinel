@@ -83,14 +83,24 @@ flowchart TB
   - `servicer.py`: RPC handlers (`AddTask`, `AcquireTask`, `SendHeartbeat`, `CommitState`)
   - `server.py`: leader-gated gRPC server manager
 - `agent_sentinel/workers/`
-  - `worker.py`: stateless worker execution loop
+  - `worker.py`: worker loop with `stub|langgraph` execution mode
+  - `langgraph_runner.py`: LangGraph step runner (`SEARCH`, `SUMMARIZE`, `SAVE`)
   - `checkpoint.py`: `AgentState` schema + transition helpers
+- `agent_sentinel/api/`
+  - `app.py`: FastAPI app + dashboard entrypoint
+  - `routes/tasks.py`: `POST /tasks`, `GET /tasks`, `GET /tasks/{task_id}`
+  - `routes/cluster.py`: `GET /cluster/status`
+  - `services/grpc_client.py`: leader discovery + gRPC bridge for REST layer
+  - `static/`: dashboard assets
 - `scripts/`
   - `compile_proto.sh`: regenerate gRPC stubs
   - `start_cluster.sh`: prints cluster start commands
+  - `start_api.sh`: starts FastAPI on `:8080`
   - `fault_tolerance_test.py`: leader failover + data durability test
   - `worker_test.py`: crash/recovery worker flow test
 - `tests/`: unit tests
+- `docs/`
+  - `task-lifecycle.md`: sequence diagram for submit/lease/commit/recovery flow
 
 ## Prerequisites
 
@@ -141,6 +151,13 @@ source .venv/bin/activate
 python -m agent_sentinel.workers.worker --worker-id w1
 ```
 
+Start API + dashboard:
+
+```bash
+source .venv/bin/activate
+./scripts/start_api.sh
+```
+
 ## Run Tests / Scenarios
 
 Fault tolerance (leader failover):
@@ -188,10 +205,13 @@ Key settings live in [`agent_sentinel/config.py`](/Users/shruthymoorthy/Document
 - lease/heartbeat timings
 - retry threshold (`MAX_RETRIES`)
 - gRPC base port (`GRPC_PORT_BASE`)
+- worker execution mode (`WORKER_EXECUTION_MODE=stub|langgraph`)
+- LangGraph step modes (`LANGGRAPH_SEARCH_MODE`, `LANGGRAPH_SUMMARIZER_MODE`, `LANGGRAPH_SAVE_MODE`)
+- OpenAI + search/save tuning vars (see `.env`)
 
 ## Roadmap (Next)
 
-- LangGraph-backed execution engine for step runtime
-- HTTP API + UI for task submission and cluster monitoring
-- external result persistence and observability stack
+- observability stack (metrics/tracing/log aggregation)
+- stronger external persistence strategy and archival lifecycle
 - sharding/batching for high-throughput scaling
+- auth + multi-tenant isolation
