@@ -21,49 +21,7 @@ Current step pipeline in worker runtime:
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    classDef edge fill:#ffffff,stroke:#94a3b8,stroke-width:1px,color:#0f172a;
-    classDef client fill:#ecfeff,stroke:#0891b2,stroke-width:1.5px,color:#0c4a6e;
-    classDef worker fill:#f0fdf4,stroke:#16a34a,stroke-width:1.5px,color:#14532d;
-    classDef leader fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#7c2d12;
-    classDef follower fill:#eef2ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81;
-    classDef disk fill:#f8fafc,stroke:#64748b,stroke-width:1px,color:#0f172a;
-
-    C[Client / API / CLI]:::client
-
-    subgraph W[Worker Pool]
-      W1[Worker w1]:::worker
-      W2[Worker w2]:::worker
-      WN[Worker wN]:::worker
-    end
-
-    subgraph R[Raft Control Plane]
-      direction LR
-      L[Node L<br/>Leader<br/>TaskRegistry + gRPC]:::leader
-      F1[Node F1<br/>Follower<br/>TaskRegistry]:::follower
-      F2[Node F2<br/>Follower<br/>TaskRegistry]:::follower
-    end
-
-    subgraph D[Durable State on Each Node]
-      DL[(raft_journal_nodeL.bin<br/>raft_dump_nodeL.bin)]:::disk
-      DF1[(raft_journal_nodeF1.bin<br/>raft_dump_nodeF1.bin)]:::disk
-      DF2[(raft_journal_nodeF2.bin<br/>raft_dump_nodeF2.bin)]:::disk
-    end
-
-    C -->|AddTask| L
-    W1 -->|AcquireTask / Heartbeat / CommitState| L
-    W2 -->|AcquireTask / Heartbeat / CommitState| L
-    WN -->|AcquireTask / Heartbeat / CommitState| L
-
-    L <-->|Raft log replication| F1
-    F1 <-->|Raft log replication| F2
-    F2 <-->|Raft log replication| L
-
-    L --- DL
-    F1 --- DF1
-    F2 --- DF2
-```
+![Agent-Sentinel Architecture](docs/Agent_Sentinel.png)
 
 ### Runtime Model
 
